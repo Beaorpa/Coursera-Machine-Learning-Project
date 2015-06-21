@@ -1,0 +1,186 @@
+---
+title: "Human Activity Recognition"
+author: "Beatriz Ortiz"
+date: "20 Jun 2015"
+output: html_document
+---
+
+## Overview:
+
+ In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. In this report that we will create later, we try to investigate "how (well)" an activity was performed by the wearer. 
+
+
+## Prepare the Enviroment
+
+First, we are going to load the necesary libraries to generate code and plots and prepare the enviroment to use Knit options.
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(knitr)
+opts_chunk$set(echo = TRUE, results = 'hold')
+```
+
+```{r echo=FALSE}
+library(doParallel)
+ cl <- makeCluster(detectCores())
+ registerDoParallel(cl)
+```
+## DownLoad data. 
+
+Now we are going download data read csv files into training and test. Then we will go to prepprocess data using cross validation
+
+```{r}
+if (!file.exists("./har")){ 
+        dir.create("./har")
+        url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+        url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url,destfile="./har/pml-training.csv",method="curl")
+download.file(url,destfile="./har/pml-testing.csv",method="curl")
+}
+
+training <- read.csv("./har/pml-training.csv")
+test <- read.csv("./har/pml-testing.csv")
+```
+
+### Spliting the trainig set 
+
+Now we will use the function createDataPartition to create balanced splits of the trainig set. We will create a 60/40% split of the data. Previously we set a seed.
+
+```{r}
+set.seed(8420)
+trainIndex <- createDataPartition(training$classe, p = 0.6,  list = FALSE)
+train_part <- training[trainIndex, ]
+test_part  <- training[-trainIndex, ]
+dim(train_part)
+dim(test_part)
+```
+
+## Cleaning and pre-Processing Data
+
+### Near Zero Covariate
+
+Prior to modeling, we want to identify and eliminate columns with a few unique numeric values. To do this, we use the neaZeroValues function:
+
+```{r}
+nzv <- nearZeroVar(train_part , saveMetrics= TRUE)
+nzv <- nearZeroVar(train_part)
+train_part <- train_part[, -nzv]
+```
+
+Now, we want to know in which columns there are missing values and the total number in each column. We will remove those, whose values are mostly NA 
+
+```{r}
+ colSums(is.na(train_part))
+```
+As we can see, all the columns with missing values, have more than a 90% of this NA. I will go to remove then.
+
+```{r}
+ train_part <- train_part[ ,(colSums(is.na(train_part)) == 0)]
+```
+
+Also we remove columns like X(id number), user_name, all timestamp and numwindow. We don't need this columns for prediction.
+
+```{r}
+ train_part <- train_part[ ,-c(1:5)]
+ str(train_part)
+```
+
+
+Clean now the test_part and test set
+```{r}
+trcolnames <- colnames(train_part)
+trcolnames2 <- colnames(train_part[ ,-54])
+        
+test_part <- test_part[trcolnames]
+test <- test[trcolnames2]
+```
+
+## Cross Validation
+I will use trainControl functionc to specifiy the type of resampling.  I will specifie 10-fold repeated cross-validation with repeated 3 times. Then I will pass this value directly to the train function as an argument .
+
+
+```{r}
+fitControl <- trainControl(method = "repeatedcv",
+                            number = 10,
+                           repeats = 3)
+```
+### Modeling 
+
+Now we are going to fit a model using classe variable as outcome value. First I use rpart method. We pass fitControl as argument. 
+
+```{r}
+modelFit <- train(classe ~ ., data = train_part,
+                  method = "rpart",
+                 trControl = fitControl)
+print(modelFit)
+```
+
+And this is the Plot for modelFit
+```{r }
+fancyRpartPlot(modelFit$finalModel)
+```
+
+Now we are going to predict against to the test_part set.  we evaluate our model results through confusion Matrix.
+```{r}
+prediction <- predict(modelFit, newdata=test_part)
+confusionMatrix(prediction, test_part$classe)
+```
+The  algorithm fit a model with accuracy 0.4963. This is a bad and low value. Wi wil tray to fit a new model using Random Forest method. 
+
+## Prediction with Random Forest
+
+```{r}
+modelFit2 <- train(classe ~ ., data = train_part,
+                  method = "rf",
+                 trControl = fitControl)
+print(modelFit2)
+```
+
+```{r}
+prediction2 <- predict(modelFit2, newdata=test_part)
+confusionMatrix(prediction2, test_part$classe)
+```
+
+The  Random Forest algorithm fit a model with accuracy 0.9976. The out-of-sample error is lower than 0.002 which. It is pretty low.
+
+
+## Predit with real test set
+
+Finally, we are going to predict the new values in the testing csv provided
+
+```{r}
+prediction3 <- predict(modelFit2, newdata=test)
+```
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(prediction3)
+
+```
+
+## Conclusion
+
+We get this prediction appling the model against test set:
+```{r}
+print(prediction3)
+```
+
+
+
+
+
+
+
+
+
